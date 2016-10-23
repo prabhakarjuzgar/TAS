@@ -1,0 +1,687 @@
+#include <cpprest/http_listener.h>
+#include <cpprest/filestream.h>
+#include <cpprest/json.h>
+#include "cpprest/http_client.h"
+#include "cpprest/producerconsumerstream.h"
+#include <iostream>
+#include <sstream>
+
+using namespace ::pplx;
+using namespace web;
+using namespace web::http;
+using namespace web::http::experimental::listener;
+using namespace concurrency::streams;
+using namespace web::http::client;
+
+
+
+#include <iostream>
+#include <map>
+#include <string>
+#include <set>
+#include <memory>
+#include <array>
+#include <locale>
+#include <wctype.h>
+#include <stack>
+#include "Server.h"
+using namespace std;
+						 //pos            //start, end
+map<utility::string_t, map<int, std::pair<int, int>>> dict;
+
+utility::string_t output;
+
+#define TRACE(msg)		std::wcout << msg << std::endl
+#define TRACE_ACTION(a, k, v)	std::wcout << a << L"(" << k << L", " << v << L")\n"
+
+map<utility::string_t, utility::string_t> dictionary;
+
+std::set<utility::string_t> common_words;
+
+void fill_common_words()
+{
+	std::vector<utility::string_t> arr = { L"this", L"was", L"a", L"are", L"the", L"The",
+	L"which", L"where", L"when", L"how", L"why", L"at", L"give", L"to", L"for", L"by", L"As", L"as",
+	L"with", L"its", L"it", L"was", L"is", L"in", L"of", L"given", L"give"};
+	common_words.insert(arr.begin(), arr.end());
+	return;
+}
+
+void addToMap(int pos, int start, int end, utility::string_t &word)
+{
+	auto iter = dict.find(word);
+	if (iter != dict.end()) {
+		iter->second.insert(pair<int, pair<int, int>>(pos, pair<int, int>(start, end)));
+		//iter.insert(pair<int, pair<int, int>>(pos, pair<int, int>(start, end)));
+	}
+	else {
+		map<int, pair<int, int>> local;
+		local.insert(pair<int, pair<int, int>>(pos, pair<int, int>(start, end)));
+		dict.insert(pair <utility::string_t, map<int, std::pair<int, int>>>(word, local));
+	}
+}
+
+void strip(utility::string_t &row, int &i, bool ignoreDot)
+{
+	int jj = 0;
+	while (jj < row.size())
+	{
+		auto c = row[jj];
+		if ((row[jj] == '\\' && row[jj + 1] == 'n')) {
+			row.erase(jj, 2);
+			continue;
+		}
+		if (row[jj] == '[') {
+			int jj_temp = jj;
+			row.erase(jj, 1);
+			if (row[jj] == '[') {
+				row.erase(jj, 1);
+			}
+			stack<wchar_t> st;
+			//push all the items inbetween [[]] to stack, if found '|', pop everything and delete from the row.
+			while (row[jj_temp] != '|' && row[jj_temp] != ']') {
+				st.push(jj_temp);
+				++jj_temp;
+			}
+			if (row[jj_temp] == '|' ) {
+				while (!st.empty()) {
+					row.erase(st.top(), 1);
+					st.pop();
+				}
+			}
+			//jj = jj_temp-1;
+		}
+		if (row[jj] == '\'' || row[jj] == '!' || row[jj] == '[' || row[jj] == ']' || row[jj] == '\"' ||
+			row[jj] == '|' || row[jj] == '-' || row[jj] == '–' || row[jj] == '*' || row[jj] == '\"') {
+			row.erase(jj, 1);
+			continue;
+		}
+		if (row[jj] == '.' && ignoreDot == false) {
+			break;
+		}
+		++jj;
+	}
+	while (row[0] == ' ') {
+		row = row.substr(1);
+		++i;
+	}
+}
+
+void tokenize(utility::string_t &substr, int &i, int &j)
+{
+	utility::string_t word;
+	auto k = 0;
+	//while (k <= j) {
+	while (k <= substr.size()) {
+		auto l = k;
+		auto f = substr.find(' ', k);
+		if (f == utility::string_t::npos) {
+			f = substr.find('.', k);
+			if (f == utility::string_t::npos) {
+				f = substr.size();
+			}
+		}
+		word = substr.substr(k, f - k);
+		while (!word.empty() && word[0] == '.') {
+			word = word.substr(1);
+		}
+		if (word.empty()) {
+			k = f + 1;
+			continue;
+		}
+		auto word_copy = word;
+		for (auto word_i = 0; word_i < word.size(); ++word_i) {
+			word_copy[word_i] = towlower(word[word_i]);
+		}
+		while (!word_copy.empty() && (word_copy[0] < 'a' || word_copy[0] > 'z')) {
+			if (word_copy[0] < '0' || word_copy[0] > '9') {
+				word_copy = word_copy.substr(1);
+				word = word.substr(1);
+			}
+			else {
+				break;
+			}
+		}
+		if (word.empty()) {
+			k = f + 1;
+			continue;
+		}
+		while (!word_copy.empty() && word_copy[word_copy.size() - 1] < 'a' || word_copy[word_copy.size() - 1] > 'z') {
+			if (word_copy[word_copy.size() - 1] < '0' || word_copy[word_copy.size() - 1] > '9') {
+				word_copy = word_copy.substr(0, word_copy.size() - 1);
+				word = word.substr(0, word.size() - 1);
+			}
+			else {
+				break;
+			}
+		}
+		if (word.empty()) {
+			k = f + 1;
+			continue;
+		}
+		if (common_words.find(word) == common_words.end()) {
+			addToMap(output.size() + k, output.size(), output.size() + substr.size()-1, word);
+		}
+
+		k = f + 1;
+	}
+}
+
+void find_start_end(utility::string_t &ss, int &i, int &j)
+{
+	//find the start and end of the line
+	j = i;
+	while (j < ss.size())
+	{
+		auto c = ss[j];
+		if ((ss[j] == '\\' && ss[j + 1] == 'n')) {
+			ss.erase(j, 2);
+			continue;
+		}
+		if (ss[j] == '\'' || ss[j] == '!' || ss[j] == '[' || ss[j] == ']' || ss[j] == '\"' ||
+			ss[j] == '|' || ss[j] == '-') {
+			ss.erase(j, 1);
+			continue;
+		}
+		if (ss[j] == '.' && ss[j+1] != '.') {
+			break;
+		}
+		++j;
+	}
+
+	//std::wcout << ss.substr(i, j - i + 1);
+	utility::string_t substr = ss.substr(i, j - i + 1);
+	while (substr[0] == ' ') {
+		substr = substr.substr(1);
+		++i;
+	}
+	//start and end of the line are i and j
+	//for each word in the range i and j.
+	tokenize(substr, i, j);
+	output += substr;
+}
+
+void indexify(utility::string_t &ss)
+{
+	fill_common_words();
+	auto i = 0;
+	//avoid infobox and its contents
+	auto infobox = ss.find(L"Infobox");
+	if (infobox == utility::string_t::npos) {
+		//Something is not right...infobox must be present
+		std::wcout << "infobox is not present" << std::endl;
+		return;
+	}
+	else {
+		infobox = ss.find(L"}}");
+		ss = ss.substr(infobox);
+	}
+	int size = ss.size();
+	while (i < ss.size())
+	{
+		if (ss[i] == '{' || ss[i] == '[' || (ss[i] == '\\' && ss[i+1] == 'n') || ss[i] == '}' || ss[i] == '>'
+			|| ss[i] == ' ' || ss[i] == '|' || ss[i] == '!' || ss[i] == ']') {
+			if (ss[i] == '\\') {
+				ss.erase(i, 2);
+			}
+			else {
+				ss.erase(i, 1);
+			}
+			//++i;
+			continue;
+		}
+		//Check if any jpeg files and ignore the section.
+		utility::string_t jpg = L"File";
+		if (ss.substr(i, jpg.length()).compare(jpg) == 0) {
+			infobox = ss.find(L"]]", i);
+			if (infobox != utility::string_t::npos) {
+				//This section has a jpeg/jpg file, avoid the entire section.
+				i = infobox + 1;
+				continue;
+			}
+		}
+		utility::string_t class_t = L"class";
+		if (ss.substr(i, class_t.length()).compare(class_t) == 0) {
+			infobox = ss.find(L"-\\n", i);
+			while (infobox != utility::string_t::npos) {
+				i = infobox + 1;
+				infobox = ss.find(L"-\\n", infobox + 1);
+				if (infobox == utility::string_t::npos) {
+					infobox = ss.find(L"\\n\\n}", i);
+					if (infobox == utility::string_t::npos) {
+						std::wcout << "Something's not right" << std::endl;
+						return;
+					}
+				}
+				utility::string_t row = ss.substr(i, infobox-i+1);
+				auto jj = 0;
+				strip(row, i);
+				jj = i + row.length();
+				tokenize(row, i, jj);
+				output += row;
+				i = infobox+1;
+				infobox = ss.find(L"-\\n", i);
+				if (infobox == utility::string_t::npos) {
+					infobox = ss.find(L"\\n|}", i);
+					if (infobox == utility::string_t::npos) {
+						std::wcout << "Something's not right" << std::endl;
+						return;
+					}
+					else {
+						utility::string_t t = L"\\n|}";
+						row = ss.substr(i, infobox - i);
+						strip(row, i);
+						jj = i + row.length();
+						tokenize(row, i, jj);
+						output += row;
+						i = infobox + t.size();
+						break;
+					}
+				}
+			}
+		}
+		if (ss[i] == '<') {
+			++i;
+			utility::string_t ref = L"ref";
+			if (ss.substr(i, ref.length()).compare(ref) == 0) {
+				i += ref.length();
+				//ss = ss.substr(i);
+				infobox = ss.find(ref, i);
+				//ss = ss.substr(infobox+ref.length());
+				i = infobox + ref.length();
+				continue;
+			}
+		}
+		if (ss[i] == '=') {
+			//Header??
+			auto equal = i;
+			if (ss[equal + 1] != '=') {
+				//erase
+			}
+			while (ss[equal++] == '=');
+			utility::string_t nnn = L"\\n";
+			infobox = ss.find(nnn, equal);
+			auto head = ss.substr(equal-1, infobox - equal - 1);
+			int endd = i + head.length();
+			equal -= i+1;
+			strip(head, i);
+			tokenize(head, i, endd);
+			output += head;
+			i = infobox;
+			//for references, ignore all the reflist and the http address...
+			if (head.compare(L"References") == 0) {
+				infobox = ss.find(L"{{reflist}}");
+				if (infobox != utility::string_t::npos) {
+					i = infobox + utility::string_t(L"{{reflist}}").length();
+					continue;
+				}
+			}
+			if (head.compare(L"External links") == 0) {
+				infobox = ss.find(L"[", i);
+				if (infobox != utility::string_t::npos) {
+					infobox = ss.find(L" ", infobox);
+					utility::string_t ext = ss.substr(infobox, ss.find(L"]", infobox) - infobox);
+					strip(ext, i);
+					endd = i + ext.length();
+					tokenize(ext, i, endd);
+					output += ext;
+					i = infobox + ext.length();
+					continue;
+				}
+			}
+			utility::string_t nn_start = L"\\n*";
+			utility::string_t mm_start = L"\\n\\n*";
+			if (ss.substr(i, nn_start.length()).compare(nn_start) == 0 || 
+				ss.substr(i, mm_start.length()).compare(mm_start) == 0) {
+				//multiple nominations parse
+				infobox = ss.find(L"\\n*", i);
+				while (infobox != utility::string_t::npos) {
+					utility::string_t nn_start_ind = L"\\n*";
+					i = infobox + nn_start_ind.length();
+					infobox = ss.find(L"\\n*", i);
+					if (infobox == utility::string_t::npos) {
+						infobox = 0;
+						infobox = ss.find(L"\\n\\n}", i);
+						if (infobox == utility::string_t::npos) {
+							std::wcout << "Something's not right" << std::endl;
+							return;
+						}
+					}
+					utility::string_t row = ss.substr(i, infobox - i);
+					auto jj = 0;
+					strip(row, i);
+					jj = i + row.length();
+					tokenize(row, i, jj);
+					output += row;
+					
+					auto infobox_temp = ss.find(L"\\n*", infobox + nn_start.length());
+					//check for next section...if nextsection is less than infobox, this is the last entry in the list
+					auto next_section = ss.find(L"==", infobox + nn_start.length());
+					if (next_section < infobox_temp) {
+						//This is the last entry in the list
+						//infobox = ss.find(L"\\n\\n}", i);
+						//utility::string_t t = L"\\n\\n";
+						i = infobox + nn_start.length();
+						row = ss.substr(i, next_section - i);
+						strip(row, i);
+						jj = i + row.length();
+						tokenize(row, i, jj);
+						output += row;
+						i = next_section;
+						break;
+					}
+					//not required
+					else if (infobox_temp == utility::string_t::npos) {
+						i = infobox + nn_start.length();
+						infobox = ss.find(L"\\n\\n}", i);
+						if (infobox == utility::string_t::npos) {
+							std::wcout << "Something's not right" << std::endl;
+							return;
+						}
+						else {
+							utility::string_t t = L"\\n\\n";
+							row = ss.substr(i, infobox - i);
+							strip(row, i);
+							jj = i + row.length();
+							tokenize(row, i, jj);
+							output += row;
+							i = infobox_temp + t.size();
+							break;
+						}
+					}
+				}
+			}
+			continue;
+		}
+		//find the start and end of the line
+		auto j = i;
+		find_start_end(ss, i, j);
+		//start and end of the line are i and j
+		//for each word in the range i and j.
+		i = j+1;
+	}
+}
+
+void print_search_results(json::value const & value)
+{
+	if (!value.is_null()) {
+		const json::value v = value;
+		try
+		{
+			if (v.is_object() || v.is_array())
+			{
+				if (v.is_object()) {
+					for (auto iter = v.as_object().begin(); iter != v.as_object().end(); ++iter)
+					{
+						//std::wcout << iter->first << endl;
+						if (iter->first == L"*")
+						{
+							auto ss = iter->second.serialize();
+							for (auto i = 0; i < ss.size(); ++i)
+							{
+								//std::wcout << ss[i];
+							}
+							indexify(ss);
+							//std::wcout << oss << endl;
+							return;
+						}
+						if (iter->second.is_array() || iter->second.is_object())
+						{
+							print_search_results(iter->second);
+						}
+						else
+						{
+							//std::wcout << iter->second.serialize() << std::endl;
+						}
+					}
+				}
+				else 
+				{
+					//is array
+					auto vv = v.as_array();
+					for (auto iter = vv.begin(); iter != vv.end(); ++iter)
+					{
+						if (iter->is_array() || iter->is_object()) 
+						{
+							print_search_results(*iter);
+						}
+						else 
+						{
+							//std::wcout << iter->as_string() << endl;
+						}
+					}
+				}
+			}
+			else
+			{
+				//std::wcout << L"Key: " << v.serialize() << std::endl;
+			}
+		}
+		catch (std::exception const & e)
+		{
+			std::wcout << "Exception occurred " << e.what() << std::endl;
+		}
+	}
+}
+
+void ExtractTOC(json::value const &value)
+{
+	if (!value.is_null()) {
+		const json::value v = value;
+		try
+		{
+			if (v.is_object() || v.is_array())
+			{
+				if (v.is_object()) {
+					for (auto iter = v.as_object().begin(); iter != v.as_object().end(); ++iter)
+					{
+						//std::wcout << iter->first << endl;
+						if (iter->first == L"sections")
+						{
+							ExtractTOC(iter->second);
+							//std::wcout << oss << endl;
+							return;
+						}
+						else if (iter->second.is_array() || iter->second.is_object())
+						{
+							ExtractTOC(iter->second);
+						}
+						else
+						{
+							//std::wcout << iter->second.serialize() << std::endl;
+						}
+					}
+				}
+				else
+				{
+					//is array
+					auto vv = v.as_array();
+					for (auto iter = vv.begin(); iter != vv.end(); ++iter)
+					{
+						auto toc_num = iter->at(U("number"));
+						auto head = iter->at(U("line"));
+						auto combine = toc_num.serialize() + L" " + head.serialize();
+						int i, j;
+						strip(combine, i, true);
+						tokenize(combine, i, j);
+						output += combine;
+					}
+				}
+			}
+			else
+			{
+				//std::wcout << L"Key: " << v.serialize() << std::endl;
+			}
+		}
+		catch (std::exception const & e)
+		{
+			std::wcout << "Exception occurred " << e.what() << std::endl;
+		}
+	}
+
+}
+
+pplx::task<void> HTTPGetTOC()
+{
+	//https://en.wikipedia.org/w/api.php?action=parse&format=json&prop=sections&page=Filmfare_Award_for_Best_Actor
+	http_client client(U("https://en.wikipedia.org/"));
+	uri_builder builder(U("/w/api.php"));
+	builder.append_query(U("action"), U("parse"));
+	builder.append_query(U("page"), U("Filmfare_Award_for_Best_Actor"));
+	builder.append_query(U("prop"), U("sections"));
+	builder.append_query(U("format"), U("json"));
+	return client.request(methods::GET, builder.to_string())
+		// Make an HTTP GET request and asynchronously process the response
+		// The following code executes when the response is available
+		.then([](http_response response) -> pplx::task<json::value>
+	{
+		std::wostringstream stream;
+		stream.str(std::wstring());
+		stream << L"Content type: " << response.headers().content_type() << std::endl;
+		stream << L"Content length: " << response.headers().content_length() << L"bytes" << std::endl;
+
+		// If the status is OK extract the body of the response into a JSON value
+		if (response.status_code() == status_codes::OK)
+		{
+			return response.extract_json();
+		}
+		else
+		{
+			// return an empty JSON value
+			return pplx::task_from_result(json::value());
+		}
+		// Continue when the JSON value is available
+	}).then([](pplx::task<json::value> previousTask)
+	{
+		// Get the JSON value from the task and call the DisplayJSONValue method
+		try
+		{
+			json::value const & value = previousTask.get();
+			ExtractTOC(value);
+		}
+		catch (http_exception const & e)
+		{
+			std::wcout << e.what() << std::endl;
+		}
+	});
+}
+
+pplx::task<void> HTTPGetAsync()
+{
+	// Create an HTTP request.
+	// Encode the URI query since it could contain special characters like spaces.
+	http_client client(U("https://en.wikipedia.org/"));
+	uri_builder builder(U("/w/api.php"));
+	builder.append_query(U("action"), U("query"));
+	builder.append_query(U("titles"), U("Filmfare_Award_for_Best_Actor"));
+	builder.append_query(U("prop"), U("revisions"));
+	builder.append_query(U("rvprop"), U("content"));
+	builder.append_query(U("format"), U("json"));
+	return client.request(methods::GET, builder.to_string())
+		// Make an HTTP GET request and asynchronously process the response
+		// The following code executes when the response is available
+		.then([](http_response response) -> pplx::task<json::value>
+	{
+		std::wostringstream stream;
+		stream.str(std::wstring());
+		stream << L"Content type: " << response.headers().content_type() << std::endl;
+		stream << L"Content length: " << response.headers().content_length() << L"bytes" << std::endl;
+
+		// If the status is OK extract the body of the response into a JSON value
+		if (response.status_code() == status_codes::OK)
+		{
+			return response.extract_json();
+		}
+		else
+		{
+			// return an empty JSON value
+			return pplx::task_from_result(json::value());
+		}
+		// Continue when the JSON value is available
+	}).then([](pplx::task<json::value> previousTask)
+	{
+		try
+		{
+			json::value const & value = previousTask.get();
+			print_search_results(value);
+		}
+		catch (http_exception const & e)
+		{
+			std::wcout << e.what() << std::endl;
+		}
+	});
+}
+
+void search_tokenize(utility::string_t &v, utility::string_t &enter)
+{
+	auto f = enter.find(' ');
+	if (f != utility::string_t::npos)
+	{
+		v = enter.substr(0, f);
+	}
+	else
+	{
+		v = enter;
+	}
+}
+
+void search(utility::string_t &enter)
+{
+	utility::string_t v;
+	search_tokenize(v, enter);
+	auto itr = dict.find(v);
+	if (itr == dict.end())
+	{
+		wcout << "Phrase not found" << std::endl;
+	}
+	else
+	{
+		for (auto iter = itr->second.begin(); iter != itr->second.end(); ++iter)
+		{
+			auto pos = iter->first;
+			auto start = iter->second.first;
+			auto end = iter->second.second;
+			if (output.substr(pos, enter.length()).compare(enter) == 0)
+			{
+				auto t = output.substr(start, end - start + 1);
+				wcout << output.substr(start, end - start + 1) << std::endl;
+			}
+			else {
+				auto t = output.substr(pos, enter.length());
+				wcout << output.substr(pos, enter.length()) << std::endl;
+			}
+		}
+	}
+
+}
+
+#ifdef _WIN32
+int wmain()
+#else
+int main()
+#endif
+{
+	try
+	{
+		HTTPGetAsync().wait();
+		HTTPGetTOC().wait();
+		while (true)
+		{
+			utility::string_t enter;
+			cout << "Enter phrase to search....enter quit to exit" << std::endl;
+			wcin >> enter;
+			if (enter.compare(L"quit") == 0) {
+				break;
+			}
+			if (enter.empty())
+			{
+				continue;
+			}
+			search(enter);
+		}
+	}
+	catch (exception const & e)
+	{
+		wcout << e.what() << endl;
+	}
+}
