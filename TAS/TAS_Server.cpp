@@ -28,11 +28,9 @@ using namespace std;
 
 #include "TAS_Server.h"
 
-#define TRACE(msg)		std::wcout << msg << std::endl
-#define TRACE_ACTION(a, k, v)	std::wcout << a << L"(" << k << L", " << v << L")\n"
-
 void TAS::fill_common_words()
 {
+	//Some of the more common words in the page
 	std::vector<utility::string_t> arr = { L"this", L"was", L"a", L"are", L"the", L"The",
 		L"which", L"where", L"when", L"how", L"why", L"at", L"give", L"to", L"for", L"by", L"As", L"as",
 		L"with", L"its", L"it", L"was", L"is", L"in", L"of", L"given", L"give", L"that"};
@@ -69,41 +67,22 @@ void TAS::addToMapCommon(int pos, int start, int end, utility::string_t &word)
 bool TAS::CheckNonAlphaNumber(utility::string_t &row, int index, bool isstart_end)
 {
 	bool ret = false;
-	//if (isstart_end == false) {
-		switch (row[index])
-		{
-		case '\'':
-		case '!':
-		case '[':
-		case ']':
-		case '\"':
-		case '|':
-		case '-':
-		case '–':
-		case '*':
-			ret = true;
-			break;
-		default:
-			break;
-		}
-#if 0
-	}
-	else
+	switch (row[index])
 	{
-		switch (row[index)
-		{
-			case '\'':
-			case '!':
-			case '[':
-			case ']':
-			case '\"':
-			case '|':
-			case '-':
-				return true;
-			default:
-		}
+	case '\'':
+	case '!':
+	case '[':
+	case ']':
+	case '\"':
+	case '|':
+	case '-':
+	case '–':
+	case '*':
+		ret = true;
+		break;
+	default:
+		break;
 	}
-#endif
 	return ret;
 }
 
@@ -214,8 +193,6 @@ void TAS::find_start_end(utility::string_t &ss, size_t &index_start, size_t &ind
 			continue;
 		}
 		if (CheckNonAlphaNumber(ss, index_present) == true) {
-		//if (ss[j] == '\'' || ss[j] == '!' || ss[j] == '[' || ss[j] == ']' || ss[j] == '\"' ||
-			//ss[j] == '|' || ss[j] == '-') {
 			ss.erase(index_present, 1);
 			continue;
 		}
@@ -232,7 +209,7 @@ void TAS::find_start_end(utility::string_t &ss, size_t &index_start, size_t &ind
 	}
 	//start and end of the line are i and j
 	//for each word in the range i and j.
-	tokenize(substr/*, index_start, index_present*/);
+	tokenize(substr);
 	output += (output.empty()) ? substr : L" " + substr;
 }
 
@@ -250,10 +227,8 @@ void TAS::parsewikiClass(utility::string_t &ss, size_t &index)
 			}
 		}
 		utility::string_t row = ss.substr(index, infobox - index + 1);
-		//size_t jj = 0;
 		strip(row, index);
-		//jj = index + row.length();
-		tokenize(row/*, index, jj*/);
+		tokenize(row);
 		output += (output.empty()) ? row : L" " + row;
 		index = infobox + 1;
 		infobox = ss.find(L"-\\n", index);
@@ -267,8 +242,7 @@ void TAS::parsewikiClass(utility::string_t &ss, size_t &index)
 				utility::string_t t = L"\\n|}";
 				row = ss.substr(index, infobox - index);
 				strip(row, index);
-				//jj = index + row.length();
-				tokenize(row/*, index, jj*/);
+				tokenize(row);
 				output += (output.empty()) ? row : L" " + row;
 				index = infobox + t.size();
 				break;
@@ -330,9 +304,7 @@ void TAS::indexify(utility::string_t &ss)
 			utility::string_t ref = L"ref";
 			if (ss.substr(index, ref.length()).compare(ref) == 0) {
 				index += ref.length();
-				//ss = ss.substr(i);
 				infobox = ss.find(ref, index);
-				//ss = ss.substr(infobox+ref.length());
 				index = infobox + ref.length();
 				continue;
 			}
@@ -349,7 +321,7 @@ void TAS::indexify(utility::string_t &ss)
 			auto head = ss.substr(equal - 1, infobox - equal - 1);
 			equal -= index + 1;
 			strip(head, index);
-			tokenize(head/*, index, endd*/);
+			tokenize(head);
 			output += (output.empty()) ? head : L" " + head;
 			index = infobox;
 			//for references, ignore all the reflist and the http address...
@@ -366,7 +338,7 @@ void TAS::indexify(utility::string_t &ss)
 					infobox = ss.find(L" ", infobox);
 					utility::string_t ext = ss.substr(infobox, ss.find(L"]", infobox) - infobox);
 					strip(ext, index);
-					tokenize(ext/*, index, endd*/);
+					tokenize(ext);
 					output += (output.empty()) ? ext : L" " + ext;
 					index = infobox + ext.length();
 					continue;
@@ -394,7 +366,7 @@ void TAS::indexify(utility::string_t &ss)
 					auto jj = 0;
 					strip(row, index);
 					jj = index + row.length();
-					tokenize(row/*, index, jj*/);
+					tokenize(row);
 					output += (output.empty()) ? row : L" " + row;
 
 					auto infobox_temp = ss.find(L"\\n*", infobox + nn_start.length());
@@ -408,7 +380,7 @@ void TAS::indexify(utility::string_t &ss)
 						row = ss.substr(index, next_section - index);
 						strip(row, index);
 						jj = index + row.length();
-						tokenize(row/*, index, jj*/);
+						tokenize(row);
 						output += (output.empty()) ? row : L" " + row;
 						index = next_section;
 						break;
@@ -426,7 +398,7 @@ void TAS::indexify(utility::string_t &ss)
 							row = ss.substr(index, infobox - index);
 							strip(row, index);
 							jj = index + row.length();
-							tokenize(row/*, index, jj*/);
+							tokenize(row);
 							output += (output.empty()) ? row : L" " + row;
 							index = infobox_temp + t.size();
 							break;
@@ -522,7 +494,7 @@ void TAS::ExtractTOC(json::value const &value)
 						auto combine = toc_num.serialize() + L" " + head.serialize();
 						size_t i;
 						strip(combine, i, true);
-						tokenize(combine/*, i, j*/);
+						tokenize(combine);
 						output += (output.empty()) ? combine : L" " + combine;
 					}
 				}
@@ -694,7 +666,6 @@ void TAS::strip_input(utility::string_t &word)
 
 void TAS::print_output(std::map<utility::string_t, std::map<int, std::pair<int, int>>> &dict, vector<utility::string_t> &v, utility::string_t &enter)
 {
-	//queue<size_t> st;
 	auto itr = dict.find(v[0]);
 	if (itr == dict.end())
 	{
@@ -794,6 +765,9 @@ void TAS::search(utility::string_t &enter)
 	else
 	{
 		print_output(dict, v, enter);
+	}
+	while (!st.empty()) {
+		st.pop();
 	}
 }
 

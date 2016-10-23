@@ -22,6 +22,9 @@ public:
 	void print_output(std::map<utility::string_t, std::map<int, std::pair<int, int>>> &dict, vector<utility::string_t> &v, utility::string_t &enter);
 private:
 	utility::string_t output;
+	//The map has string as the key and another map as value.
+	//The second map, stores approximate position of the word and start and end of the sentence the word is found in
+	//To make search faster for non-common words common words are stored in a separate map.
 	std::map<utility::string_t, std::map<int, std::pair<int, int>>> dict;
 	std::map<utility::string_t, std::map<int, std::pair<int, int>>> dict_common;
 	std::set<utility::string_t> common_words;
