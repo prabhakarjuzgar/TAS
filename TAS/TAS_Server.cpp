@@ -749,22 +749,26 @@ void TAS::search(utility::string_t &enter)
 {
 	vector<utility::string_t> v;
 	vector<utility::string_t> vc, l;
-	while (!enter.empty() && iswspace(enter[0])) {
+	while (!enter.empty() && (iswspace(enter[0]) || !iswalnum(enter[0]))) {
 		enter = enter.substr(1);
 	}
-	while (!enter.empty() && iswspace(enter[enter.size()-1])) {
+	while (!enter.empty() && (iswspace(enter[enter.size()-1]) || !iswalnum(enter[enter.size()-1]))) {
 		enter = enter.substr(0, enter.size() - 1);
 	}
 	if (enter.empty()) {
+		wcout << "Phrase not valid" << endl << endl;
 		return;
 	}
 	search_tokenize(v, vc, enter, st);
 	if (v.empty()) {
 		print_output(dict_common, vc, enter);
 	}
-	else
+	else if (!v.empty())
 	{
 		print_output(dict, v, enter);
+	}
+	else {
+		wcout << "Phrase not found" << endl << endl;
 	}
 	while (!st.empty()) {
 		st.pop();
